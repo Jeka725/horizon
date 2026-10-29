@@ -45,4 +45,4 @@ jobs:
           echo "AR_aarch64_linux_android=$NDK_ROOT/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-ar" >> "$GITHUB_ENV"
 
       - name: Compile client dependency graph for Android
-        run: cargo check --locked -p horizon-client --no-default-features --target aarch64-linux-android
+        run: cargo check -p horizon-client --no-default-features --target aarch64-linux-android
