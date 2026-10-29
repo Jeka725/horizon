@@ -1,0 +1,48 @@
+name: Android ARM64 compile probe
+
+on:
+  push:
+    branches: [android-port]
+  pull_request:
+    branches: [android-port]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: android-port-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  android-arm64-check:
+    name: Check game client for Android ARM64
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android
+
+      - name: Install Android NDK
+        uses: android-actions/setup-android@v3
+        with:
+          packages: ndk;27.2.12479018
+
+      - name: Configure Android linker
+        shell: bash
+        run: |
+          set -euo pipefail
+          NDK_ROOT="${ANDROID_NDK_HOME:-${ANDROID_HOME}/ndk/27.2.12479018}"
+          CLANG="$NDK_ROOT/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android24-clang"
+          test -x "$CLANG"
+          echo "CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER=$CLANG" >> "$GITHUB_ENV"
+          echo "CC_aarch64_linux_android=$CLANG" >> "$GITHUB_ENV"
+          echo "AR_aarch64_linux_android=$NDK_ROOT/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-ar" >> "$GITHUB_ENV"
+
+      - name: Compile client dependency graph for Android
+        run: cargo check --locked -p horizon-client --no-default-features --target aarch64-linux-android
