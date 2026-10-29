@@ -8,10 +8,6 @@ description = "The client's input layer: key bindings and their names, mouse, co
 
 [dependencies]
 horizon-client-core = { path = "../horizon-client-core" }
-winit = "0.30.13"
-
-[target.'cfg(target_os = "android")'.dependencies]
-# winit needs an Android activity implementation when cross-compiling.
 winit = { version = "0.30.13", features = ["android-game-activity"] }
 # The window icon.
 horizon-theme = { path = "../horizon-theme" }
