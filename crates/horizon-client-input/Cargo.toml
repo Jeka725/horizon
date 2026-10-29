@@ -15,6 +15,10 @@ png = "0.18"
 # The DualSense's trigger effects (the `controllers` feature).
 horizon-dualsense = { path = "../horizon-dualsense", optional = true }
 
+[target.'cfg(not(target_os = "android"))'.dependencies]
+# Desktop clipboard backends are not available on Android.
+arboard = { version = "3.6.1", default-features = false, features = ["wayland-data-control"] }
+
 [features]
 controllers = ["dep:horizon-dualsense"]
 
