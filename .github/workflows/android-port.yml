@@ -33,16 +33,20 @@ jobs:
         with:
           packages: ndk;27.2.12479018
 
-      - name: Configure Android linker
+      - name: Configure Android native toolchain
         shell: bash
         run: |
           set -euo pipefail
           NDK_ROOT="${ANDROID_NDK_HOME:-${ANDROID_HOME}/ndk/27.2.12479018}"
-          CLANG="$NDK_ROOT/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android24-clang"
+          TOOLCHAIN="$NDK_ROOT/toolchains/llvm/prebuilt/linux-x86_64/bin"
+          CLANG="$TOOLCHAIN/aarch64-linux-android24-clang"
+          CLANGXX="$TOOLCHAIN/aarch64-linux-android24-clang++"
           test -x "$CLANG"
+          test -x "$CLANGXX"
           echo "CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER=$CLANG" >> "$GITHUB_ENV"
           echo "CC_aarch64_linux_android=$CLANG" >> "$GITHUB_ENV"
-          echo "AR_aarch64_linux_android=$NDK_ROOT/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-ar" >> "$GITHUB_ENV"
+          echo "CXX_aarch64_linux_android=$CLANGXX" >> "$GITHUB_ENV"
+          echo "AR_aarch64_linux_android=$TOOLCHAIN/llvm-ar" >> "$GITHUB_ENV"
 
       - name: Compile client dependency graph for Android
         run: cargo check -p horizon-client --no-default-features --target aarch64-linux-android
