@@ -1,4 +1,4 @@
-name: Android ARM64 compile probe
+name: Android ARM64 native build
 
 on:
   push:
@@ -16,7 +16,7 @@ concurrency:
 
 jobs:
   android-arm64-check:
-    name: Check game client for Android ARM64
+    name: Build game client for Android ARM64
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     steps:
@@ -48,5 +48,13 @@ jobs:
           echo "CXX_aarch64_linux_android=$CLANGXX" >> "$GITHUB_ENV"
           echo "AR_aarch64_linux_android=$TOOLCHAIN/llvm-ar" >> "$GITHUB_ENV"
 
-      - name: Compile client dependency graph for Android
-        run: cargo check -p horizon-client --no-default-features --target aarch64-linux-android
+      - name: Build game client for Android ARM64
+        run: cargo build -p horizon-client --no-default-features --target aarch64-linux-android
+
+      - name: Upload Android ARM64 native binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: horizon-client-android-arm64-native-build
+          path: target/aarch64-linux-android/debug/horizon-client
+          if-no-files-found: error
+          retention-days: 7
