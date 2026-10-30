@@ -1,0 +1,63 @@
+name: Horizon Android APK
+
+on:
+  push:
+    branches: [android-port]
+    paths:
+      - "android-app/**"
+      - "*.gradle.kts"
+      - "gradle.properties"
+      - ".github/workflows/android-apk.yml"
+  pull_request:
+    branches: [android-port]
+    paths:
+      - "android-app/**"
+      - "*.gradle.kts"
+      - "gradle.properties"
+      - ".github/workflows/android-apk.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: horizon-apk-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-apk:
+    name: Build Horizon debug APK
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Build APK
+        run: gradle --no-daemon :android-app:assembleDebug
+
+      - name: Verify APK
+        shell: bash
+        run: |
+          set -euo pipefail
+          APK="android-app/build/outputs/apk/debug/android-app-debug.apk"
+          test -s "$APK"
+          file "$APK"
+          unzip -t "$APK"
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: horizon-android-debug-apk
+          path: android-app/build/outputs/apk/debug/android-app-debug.apk
+          if-no-files-found: error
+          retention-days: 7
