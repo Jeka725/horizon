@@ -122,7 +122,7 @@ class MainActivity : Activity() {
                             ZipInputStream(input).use { zip ->
                                 while (true) {
                                     val entry = zip.nextEntry ?: break
-                                    val relative = entry.name.replace('\\\\', '/')
+                                    val relative = entry.name.replace('\\', '/')
                                     val target = File(staging, relative).canonicalFile
                                     require(target.toPath().startsWith(staging.canonicalFile.toPath())) {
                                         "В архиве найден недопустимый путь"
