@@ -151,6 +151,7 @@ class MainActivity : Activity() {
         if (resultCode != RESULT_OK) return
         val uri = data?.data ?: return
         setBusy(true, "Подготавливаю установку…")
+        updateProjectProgress(0, 0f, "Открываю выбранные файлы…")
         showOperation("Подготовка", "Открываю выбранный источник…", null)
         Thread {
             try {
@@ -284,12 +285,10 @@ class MainActivity : Activity() {
             processedBytes += file.length().coerceAtLeast(0L)
             processedFiles++
             if (processedFiles == 1 || processedFiles % 20 == 0 || processedFiles == totalFiles) {
-                showOperation(
-                    "Индексирование Minecraft",
-                    "$relative\nФайлов: $processedFiles / $totalFiles · ${formatBytes(processedBytes)} / ${formatBytes(totalBytes)}",
-                    totalFiles.toLong(),
-                    processedFiles.toLong()
-                )
+                val fraction = if (totalFiles > 0) processedFiles.toFloat() / totalFiles else 1f
+                val detail = "$relative\nФайлов: $processedFiles / $totalFiles · ${formatBytes(processedBytes)} / ${formatBytes(totalBytes)}"
+                showOperation("Индексирование Minecraft", detail, totalFiles.toLong(), processedFiles.toLong())
+                updateProjectProgress(1, fraction, detail)
             }
         }
 
@@ -370,12 +369,10 @@ class MainActivity : Activity() {
                             if (count < 0) break
                             output.write(buffer, 0, count)
                             currentCopied += count
-                            showOperation(
-                                "Копирование папки",
-                                "$name · ${formatBytes(currentCopied)} из ${formatBytes(totalBytes)}",
-                                totalBytes,
-                                currentCopied
-                            )
+                            val fraction = if (totalBytes > 0L) currentCopied.toFloat() / totalBytes else 1f
+                            val detail = "$name · ${formatBytes(currentCopied)} из ${formatBytes(totalBytes)}"
+                            showOperation("Копирование папки", detail, totalBytes, currentCopied)
+                            updateProjectProgress(0, fraction, detail)
                         }
                     }
                 }
@@ -426,43 +423,50 @@ class MainActivity : Activity() {
         }
     }
 
-    private fun refreshProgress() {
+    private fun refreshProgress() = renderProjectProgress()
+
+    private fun updateProjectProgress(stageIndex: Int, fraction: Float, detail: String) {
+        renderProjectProgress(stageIndex, fraction.coerceIn(0f, 1f), detail)
+    }
+
+    private fun renderProjectProgress(activeStage: Int = -1, activeFraction: Float = 0f, detail: String? = null) {
         val sourceImported = File(filesDir, "minecraft-source/versions").isDirectory
         val resourcesInstalled = File(filesDir, "resources/horizon-resources.json").isFile
+        val indexed = File(filesDir, "minecraft-source/horizon-resource-index.json").isFile || resourcesInstalled
         val stages = listOf(
-            Triple("Импорт Minecraft .minecraft", sourceImported || resourcesInstalled, "ZIP распознан и сохранён"),
-            Triple("Проверка и индексирование Minecraft", File(filesDir, "minecraft-source/horizon-resource-index.json").isFile || resourcesInstalled, "Сканирование assets, libraries и versions"),
+            Triple("Импорт Minecraft .minecraft", sourceImported || resourcesInstalled, "Сохранение исходных файлов"),
+            Triple("Проверка и индексирование Minecraft", indexed, "Сканирование assets, libraries и versions"),
             Triple("Подключение Java Runtime", false, "Запуск Java на Android"),
             Triple("Подключение игрового клиента", false, "Связать игровой клиент с Android-приложением"),
             Triple("Графика и управление", false, "Вывод изображения, касания и клавиатура"),
             Triple("Проверка запуска мира", false, "Запуск и проверка настоящего игрового мира")
         )
-        val done = stages.count { it.second }
-        val percent = done * 100 / stages.size
-        progressSummary.text = "$done из ${stages.size} этапов завершено · $percent%"
-        progressBar.progress = percent
+        val completed = stages.count { it.second }
+        val completedBefore = if (activeStage >= 0) stages.take(activeStage).count { it.second } else completed
+        val percent = if (activeStage >= 0) {
+            ((completedBefore + activeFraction) * 100f / stages.size).toInt().coerceIn(0, 100)
+        } else completed * 100 / stages.size
+        progressSummary.text = if (activeStage >= 0) "$percent% · этап ${activeStage + 1} из ${stages.size}" else "$completed из ${stages.size} этапов завершено · $percent%"
+        progressBar.setProgress(percent, true)
         progressPanel.removeAllViews()
-        stages.forEach { stage ->
-            val line = LinearLayout(this).apply {
-                orientation = LinearLayout.VERTICAL
-                setPadding(0, dp(7), 0, dp(7))
-            }
-            val title = if (stage.second) "✓  ${stage.first}" else "○  ${stage.first}"
-            line.addView(label(title, 14f, if (stage.second) 0xFF7ED6A5.toInt() else Color.WHITE, true))
+        stages.forEachIndexed { index, stage ->
+            val isActive = index == activeStage && !stage.second
+            val line = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(0, dp(7), 0, dp(7)) }
+            val title = when { stage.second -> "✓  ${stage.first}"; isActive -> "●  ${stage.first}"; else -> "○  ${stage.first}" }
+            val color = when { stage.second -> 0xFF7ED6A5.toInt(); isActive -> BLUE; else -> Color.WHITE }
+            line.addView(label(title, 14f, color, true))
             line.addView(space(3))
-            line.addView(label(
-                if (stage.second) "Готово" else "Ожидает выполнения · ${stage.third}",
-                12f, MUTED, false
-            ))
+            val subtext = when { stage.second -> "Готово"; isActive -> detail ?: "Выполняется · ${stage.third}"; else -> "Ожидает выполнения · ${stage.third}" }
+            line.addView(label(subtext, 12f, MUTED, false))
+            if (isActive) {
+                val phaseBar = ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal).apply { max = 1000; setProgress((activeFraction * 1000).toInt(), true) }
+                line.addView(phaseBar, LinearLayout.LayoutParams(-1, dp(5)).apply { topMargin = dp(6) })
+            }
             progressPanel.addView(line)
         }
         progressPanel.addView(space(4))
-        progressPanel.addView(label(
-            "Индексирование выполняется по реальным файлам и показывает отдельный счётчик операции. Оно проверяет и описывает ресурсы, но не заменяет Java Runtime и игровой движок.",
-            11f, MUTED, false
-        ))
+        progressPanel.addView(label("Общий процент растёт только по измеренному прогрессу текущего этапа и завершённым этапам. Ожидающие Java Runtime и игровой движок не считаются выполненными.", 11f, MUTED, false))
     }
-
     private fun label(text: String, size: Float, color: Int, bold: Boolean) =
         TextView(this).apply {
             this.text = text
