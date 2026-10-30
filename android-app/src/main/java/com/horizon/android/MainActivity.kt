@@ -16,6 +16,8 @@ import java.io.File
 import java.io.FileOutputStream
 
 class MainActivity : Activity() {
+    private external fun nativeEngineStatus(): String
+
     private lateinit var status: TextView
     private lateinit var importButton: Button
     private val prefs by lazy { getSharedPreferences("horizon", MODE_PRIVATE) }
@@ -75,6 +77,13 @@ class MainActivity : Activity() {
 
         setContentView(scroll)
         refreshStatus()
+        page.addView(space(12))
+        page.addView(label("RUST ENGINE", 12f, Color.rgb(103, 180, 255), true))
+        page.addView(space(8))
+        val nativeStatus = try { nativeEngineStatus() } catch (error: UnsatisfiedLinkError) {
+            "Нативная библиотека Rust не найдена: ${error.message}"
+        }
+        page.addView(label(nativeStatus, 13f, Color.rgb(205, 214, 228), false))
     }
 
     @Deprecated("Uses the system folder picker for broad Android compatibility")
