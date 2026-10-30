@@ -14,6 +14,8 @@ import android.widget.TextView
 import androidx.documentfile.provider.DocumentFile
 import java.io.File
 import java.io.FileOutputStream
+import org.json.JSONArray
+import org.json.JSONObject
 import java.util.zip.ZipInputStream
 
 class MainActivity : Activity() {
@@ -217,10 +219,11 @@ class MainActivity : Activity() {
                     sourceBackup.deleteRecursively()
                     staging.deleteRecursively()
                     prefs.edit().putBoolean("minecraft_source_imported", true).apply()
+                    prepareImportedResources(sourceTarget)
                     runOnUiThread {
-                        setBusy(false, "Файлы Minecraft 26.3 импортированы. Подготовка ресурсов Horizon и запуск игры ещё не подключены.")
-                    finishOperation("Импорт завершён", "Сохранены реальные файлы Minecraft во внутренней памяти.")
-                    refreshProgress()
+                        setBusy(false, "Файлы Minecraft импортированы и проиндексированы. Игровой движок ещё не подключён.")
+                        finishOperation("Проверка ресурсов завершена", "Создан индекс файлов Minecraft. Игровой запуск пока не подключён.")
+                        refreshProgress()
                     }
                     return@Thread
                 }
@@ -246,6 +249,63 @@ class MainActivity : Activity() {
                 }
             }
         }.start()
+    }
+
+    private fun prepareImportedResources(root: File) {
+        showOperation("Подготовка ресурсов: анализ файлов", "Подсчитываю файлы и объём данных…", null)
+        val allFiles = root.walkTopDown().filter { it.isFile }.toList()
+        val totalBytes = allFiles.sumOf { it.length().coerceAtLeast(0L) }
+        val totalFiles = allFiles.size
+        var processedBytes = 0L
+        var processedFiles = 0
+        var assetFiles = 0
+        var libraryFiles = 0
+        var versionFiles = 0
+        var versionJars = 0
+        var versionJson = 0
+        val versionNames = JSONArray()
+
+        allFiles.forEach { file ->
+            val relative = file.relativeTo(root).invariantSeparatorsPath
+            when {
+                relative.startsWith("assets/") -> assetFiles++
+                relative.startsWith("libraries/") -> libraryFiles++
+                relative.startsWith("versions/") -> {
+                    versionFiles++
+                    if (file.extension.equals("jar", true)) versionJars++
+                    if (file.extension.equals("json", true)) {
+                        versionJson++
+                        if (file.parentFile?.parentFile == File(root, "versions")) {
+                            versionNames.put(file.parentFile?.name ?: file.nameWithoutExtension)
+                        }
+                    }
+                }
+            }
+            processedBytes += file.length().coerceAtLeast(0L)
+            processedFiles++
+            if (processedFiles == 1 || processedFiles % 20 == 0 || processedFiles == totalFiles) {
+                showOperation(
+                    "Индексирование Minecraft",
+                    "$relative\nФайлов: $processedFiles / $totalFiles · ${formatBytes(processedBytes)} / ${formatBytes(totalBytes)}",
+                    totalFiles.toLong(),
+                    processedFiles.toLong()
+                )
+            }
+        }
+
+        val report = JSONObject()
+            .put("format", 1)
+            .put("source", "Minecraft Java .minecraft")
+            .put("files", processedFiles)
+            .put("bytes", processedBytes)
+            .put("assetsFiles", assetFiles)
+            .put("librariesFiles", libraryFiles)
+            .put("versionsFiles", versionFiles)
+            .put("versionJars", versionJars)
+            .put("versionJson", versionJson)
+            .put("versionNames", versionNames)
+            .put("indexedAtEpochMs", System.currentTimeMillis())
+        File(root, "horizon-resource-index.json").writeText(report.toString(2))
     }
 
     private fun locateResourceRoot(staging: File): File? {
@@ -371,7 +431,7 @@ class MainActivity : Activity() {
         val resourcesInstalled = File(filesDir, "resources/horizon-resources.json").isFile
         val stages = listOf(
             Triple("Импорт Minecraft .minecraft", sourceImported || resourcesInstalled, "ZIP распознан и сохранён"),
-            Triple("Подготовка ресурсов Horizon", resourcesInstalled, "Генерация и проверка пакета"),
+            Triple("Проверка и индексирование Minecraft", File(filesDir, "minecraft-source/horizon-resource-index.json").isFile || resourcesInstalled, "Сканирование assets, libraries и versions"),
             Triple("Подключение Java Runtime", false, "Запуск Java на Android"),
             Triple("Подключение игрового клиента", false, "Связать игровой клиент с Android-приложением"),
             Triple("Графика и управление", false, "Вывод изображения, касания и клавиатура"),
@@ -398,7 +458,7 @@ class MainActivity : Activity() {
         }
         progressPanel.addView(space(4))
         progressPanel.addView(label(
-            "Процент считается по шести проверяемым этапам, а не по времени ожидания. Сборка native-файла сама по себе ещё не означает, что игровой клиент подключён.",
+            "Индексирование выполняется по реальным файлам и показывает отдельный счётчик операции. Оно проверяет и описывает ресурсы, но не заменяет Java Runtime и игровой движок.",
             11f, MUTED, false
         ))
     }
