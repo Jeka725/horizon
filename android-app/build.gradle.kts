@@ -15,6 +15,8 @@ android {
         versionName = "0.1.0"
     }
 
+    sourceSets["main"].jniLibs.srcDir("src/main/jniLibs")
+
     buildTypes {
         release {
             isMinifyEnabled = false
