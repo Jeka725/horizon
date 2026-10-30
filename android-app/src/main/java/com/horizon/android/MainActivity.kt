@@ -292,7 +292,7 @@ class MainActivity : Activity() {
         return bytes to files
     }
 
-    private fun copyTree(source: DocumentFile, destination: File, totalBytes: Long, copied: Long = 0L) {
+    private fun copyTree(source: DocumentFile, destination: File, totalBytes: Long, copied: Long = 0L): Long {
         require(source.isDirectory) { "Нужно выбрать папку" }
         var currentCopied = copied
         source.listFiles().forEach { child ->
