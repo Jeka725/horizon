@@ -24,6 +24,9 @@ class MainActivity : Activity() {
     private lateinit var progressPanel: LinearLayout
     private lateinit var progressSummary: TextView
     private lateinit var progressBar: ProgressBar
+    private lateinit var operationPanel: LinearLayout
+    private lateinit var operationText: TextView
+    private lateinit var operationProgress: ProgressBar
     private val prefs by lazy { getSharedPreferences("horizon", MODE_PRIVATE) }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -54,7 +57,24 @@ class MainActivity : Activity() {
         status = label("Ресурсы ещё не установлены.", 15f, Color.WHITE, false)
         panel.addView(status)
         page.addView(panel)
-        page.addView(space(16))
+        page.addView(space(12))
+        operationPanel = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(14), dp(12), dp(14), dp(12))
+            setBackgroundColor(Color.rgb(22, 30, 43))
+            visibility = android.view.View.GONE
+        }
+        operationText = label("Ожидание операции", 13f, Color.WHITE, true)
+        operationPanel.addView(operationText)
+        operationProgress = ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal).apply {
+            max = 1000
+            isIndeterminate = true
+        }
+        operationPanel.addView(operationProgress, LinearLayout.LayoutParams(-1, dp(8)).apply {
+            topMargin = dp(10)
+        })
+        page.addView(operationPanel)
+        page.addView(space(12))
 
         folderButton = Button(this).apply {
             text = "Установить из папки ресурсов"
@@ -129,6 +149,7 @@ class MainActivity : Activity() {
         if (resultCode != RESULT_OK) return
         val uri = data?.data ?: return
         setBusy(true, "Подготавливаю установку…")
+        showOperation("Подготовка", "Открываю выбранный источник…", null)
         Thread {
             try {
                 val staging = File(filesDir, "resources-installing")
@@ -138,14 +159,19 @@ class MainActivity : Activity() {
                     REQUEST_FOLDER -> {
                         contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
                         val tree = DocumentFile.fromTreeUri(this, uri) ?: error("Не удалось открыть папку")
-                        copyTree(tree, staging)
+                        val totals = measureTree(tree)
+                        showOperation("Копирование папки", "Найдено файлов: ${totals.second} · 0 Б", totals.first)
+                        copyTree(tree, staging, totals.first)
                     }
                     REQUEST_ZIP -> {
                         contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
                         contentResolver.openInputStream(uri)?.use { input ->
                             ZipInputStream(input).use { zip ->
+                                var extractedBytes = 0L
+                                var extractedFiles = 0
                                 while (true) {
                                     val entry = zip.nextEntry ?: break
+                                    showOperation("Распаковка ZIP", "${entry.name} · файлов: $extractedFiles · распаковано: ${formatBytes(extractedBytes)}", null)
                                     val relative = entry.name.replace('\\', '/')
                                     val target = File(staging, relative).canonicalFile
                                     require(target.toPath().startsWith(staging.canonicalFile.toPath())) {
@@ -153,7 +179,19 @@ class MainActivity : Activity() {
                                     }
                                     if (entry.isDirectory) target.mkdirs() else {
                                         target.parentFile?.mkdirs()
-                                        FileOutputStream(target).use { output -> zip.copyTo(output) }
+                                        FileOutputStream(target).use { output ->
+                                            val buffer = ByteArray(64 * 1024)
+                                            while (true) {
+                                                val count = zip.read(buffer)
+                                                if (count < 0) break
+                                                output.write(buffer, 0, count)
+                                                extractedBytes += count
+                                                if (extractedBytes % (512 * 1024) < count) {
+                                                    showOperation("Распаковка ZIP", "${entry.name} · файлов: $extractedFiles · распаковано: ${formatBytes(extractedBytes)}", null)
+                                                }
+                                            }
+                                        }
+                                        extractedFiles++
                                     }
                                     zip.closeEntry()
                                 }
@@ -181,6 +219,7 @@ class MainActivity : Activity() {
                     prefs.edit().putBoolean("minecraft_source_imported", true).apply()
                     runOnUiThread {
                         setBusy(false, "Файлы Minecraft 26.3 импортированы. Подготовка ресурсов Horizon и запуск игры ещё не подключены.")
+                    finishOperation("Импорт завершён", "Сохранены реальные файлы Minecraft во внутренней памяти.")
                     refreshProgress()
                     }
                     return@Thread
@@ -196,11 +235,15 @@ class MainActivity : Activity() {
                 prefs.edit().putBoolean("resources_installed", true).apply()
                 runOnUiThread {
                     setBusy(false, "Ресурсы Horizon успешно установлены.")
+                    finishOperation("Установка завершена", "Пакет Horizon установлен и проверен.")
                     refreshProgress()
                 }
             } catch (error: Exception) {
                 File(filesDir, "resources-installing").deleteRecursively()
-                runOnUiThread { setBusy(false, "Установка не выполнена: ${error.message ?: "ошибка чтения файлов"}") }
+                runOnUiThread {
+                    setBusy(false, "Установка не выполнена: ${error.message ?: "ошибка чтения файлов"}")
+                    finishOperation("Операция остановлена", error.message ?: "Неизвестная ошибка")
+                }
             }
         }.start()
     }
@@ -233,20 +276,76 @@ class MainActivity : Activity() {
             .firstOrNull(::valid)
     }
 
-    private fun copyTree(source: DocumentFile, destination: File) {
+    private fun measureTree(source: DocumentFile): Pair<Long, Int> {
+        var bytes = 0L
+        var files = 0
+        source.listFiles().forEach { child ->
+            if (child.isDirectory) {
+                val nested = measureTree(child)
+                bytes += nested.first
+                files += nested.second
+            } else if (child.isFile) {
+                bytes += child.length().coerceAtLeast(0L)
+                files++
+            }
+        }
+        return bytes to files
+    }
+
+    private fun copyTree(source: DocumentFile, destination: File, totalBytes: Long, copied: Long = 0L) {
         require(source.isDirectory) { "Нужно выбрать папку" }
+        var currentCopied = copied
         source.listFiles().forEach { child ->
             val name = child.name ?: return@forEach
             val target = File(destination, name)
             if (child.isDirectory) {
                 target.mkdirs()
-                copyTree(child, target)
+                currentCopied = copyTree(child, target, totalBytes, currentCopied)
             } else if (child.isFile) {
                 contentResolver.openInputStream(child.uri)?.use { input ->
-                    FileOutputStream(target).use { output -> input.copyTo(output) }
+                    FileOutputStream(target).use { output ->
+                        val buffer = ByteArray(64 * 1024)
+                        while (true) {
+                            val count = input.read(buffer)
+                            if (count < 0) break
+                            output.write(buffer, 0, count)
+                            currentCopied += count
+                            showOperation(
+                                "Копирование папки",
+                                "$name · ${formatBytes(currentCopied)} из ${formatBytes(totalBytes)}",
+                                totalBytes,
+                                currentCopied
+                            )
+                        }
+                    }
                 }
             }
         }
+        return currentCopied
+    }
+
+    private fun showOperation(title: String, detail: String, total: Long?, current: Long = 0L) {
+        runOnUiThread {
+            operationPanel.visibility = android.view.View.VISIBLE
+            operationText.text = "$title\n$detail"
+            operationProgress.isIndeterminate = total == null || total <= 0L
+            if (total != null && total > 0L) {
+                operationProgress.progress = ((current.coerceAtMost(total) * 1000L) / total).toInt()
+            }
+        }
+    }
+
+    private fun finishOperation(title: String, detail: String) {
+        operationPanel.visibility = android.view.View.VISIBLE
+        operationText.text = "$title\n$detail"
+        operationProgress.isIndeterminate = false
+        operationProgress.progress = 1000
+    }
+
+    private fun formatBytes(bytes: Long): String = when {
+        bytes >= 1024L * 1024L -> String.format(java.util.Locale.US, "%.1f МБ", bytes / 1048576.0)
+        bytes >= 1024L -> String.format(java.util.Locale.US, "%.0f КБ", bytes / 1024.0)
+        else -> "$bytes Б"
     }
 
     private fun setBusy(busy: Boolean, message: String) {
