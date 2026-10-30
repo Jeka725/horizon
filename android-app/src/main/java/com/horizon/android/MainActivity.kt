@@ -6,7 +6,6 @@ import android.graphics.Color
 import android.net.Uri
 import android.os.Bundle
 import android.view.Gravity
-import android.view.ViewGroup
 import android.widget.Button
 import android.widget.LinearLayout
 import android.widget.ScrollView
@@ -14,19 +13,19 @@ import android.widget.TextView
 import androidx.documentfile.provider.DocumentFile
 import java.io.File
 import java.io.FileOutputStream
+import java.util.zip.ZipInputStream
 
 class MainActivity : Activity() {
     private external fun nativeEngineStatus(): String
-
     private lateinit var status: TextView
-    private lateinit var importButton: Button
+    private lateinit var folderButton: Button
+    private lateinit var archiveButton: Button
     private val prefs by lazy { getSharedPreferences("horizon", MODE_PRIVATE) }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         window.statusBarColor = Color.rgb(10, 14, 22)
         window.navigationBarColor = Color.rgb(10, 14, 22)
-        window.decorView.systemUiVisibility = 0
 
         val page = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -34,28 +33,27 @@ class MainActivity : Activity() {
             setBackgroundColor(Color.rgb(10, 14, 22))
         }
         val scroll = ScrollView(this).apply { addView(page) }
-        val brand = label("HORIZON", 13f, Color.rgb(103, 180, 255), true)
-        page.addView(brand)
-        page.addView(space(24))
+        page.addView(label("HORIZON", 13f, BLUE, true))
+        page.addView(space(20))
         page.addView(label("Minecraft Java\non Android", 31f, Color.WHITE, true))
-        page.addView(space(12))
-        page.addView(label("Локальный игровой клиент", 16f, Color.rgb(165, 178, 198), false))
-        page.addView(space(28))
+        page.addView(space(10))
+        page.addView(label("Установщик игровых ресурсов", 16f, MUTED, false))
+        page.addView(space(24))
 
         val panel = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(18), dp(18), dp(18), dp(18))
             setBackgroundColor(Color.rgb(22, 30, 43))
         }
-        panel.addView(label("ИГРОВЫЕ ФАЙЛЫ", 12f, Color.rgb(103, 180, 255), true))
+        panel.addView(label("УСТАНОВКА ФАЙЛОВ", 12f, BLUE, true))
         panel.addView(space(10))
-        status = label("Папка Minecraft ещё не импортирована.", 15f, Color.WHITE, false)
+        status = label("Ресурсы ещё не установлены.", 15f, Color.WHITE, false)
         panel.addView(status)
         page.addView(panel)
-        page.addView(space(20))
+        page.addView(space(16))
 
-        importButton = Button(this).apply {
-            text = "Выбрать папку Minecraft"
+        folderButton = Button(this).apply {
+            text = "Установить из папки ресурсов"
             isAllCaps = false
             setOnClickListener {
                 val intent = Intent(Intent.ACTION_OPEN_DOCUMENT_TREE).apply {
@@ -64,66 +62,113 @@ class MainActivity : Activity() {
                 startActivityForResult(intent, REQUEST_FOLDER)
             }
         }
-        page.addView(importButton, LinearLayout.LayoutParams(-1, dp(54)))
-        page.addView(space(18))
-        page.addView(label(
-            "Выбери папку .minecraft с файлами своей копии игры. Horizon скопирует её во внутреннее хранилище приложения. Никакие игровые файлы не загружаются в GitHub.",
-            14f, Color.rgb(165, 178, 198), false
-        ))
-        page.addView(space(28))
-        page.addView(label("СОСТОЯНИЕ ПРОЕКТА", 12f, Color.rgb(103, 180, 255), true))
-        page.addView(space(8))
-        page.addView(label("Android-приложение и импорт файлов — первый этап. Подключение Rust-движка и запуск игрового мира ещё разрабатываются.", 14f, Color.rgb(205, 214, 228), false))
+        page.addView(folderButton, LinearLayout.LayoutParams(-1, dp(54)))
+        page.addView(space(10))
 
+        archiveButton = Button(this).apply {
+            text = "Установить из ZIP-архива"
+            isAllCaps = false
+            setOnClickListener {
+                val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
+                    addCategory(Intent.CATEGORY_OPENABLE)
+                    type = "application/zip"
+                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION)
+                }
+                startActivityForResult(intent, REQUEST_ZIP)
+            }
+        }
+        page.addView(archiveButton, LinearLayout.LayoutParams(-1, dp(54)))
+        page.addView(space(16))
+        page.addView(label(
+            "Важно: APK не содержит Minecraft. Нужен архив или папка ресурсов, подготовленных из твоей собственной легальной копии Minecraft Java 26.3. Обычная папка .minecraft сама по себе ещё не является готовым пакетом Horizon. Приложение проверит пакет перед установкой.",
+            14f, MUTED, false
+        ))
+        page.addView(space(24))
+        page.addView(label("СОСТОЯНИЕ", 12f, BLUE, true))
+        page.addView(space(8))
+        page.addView(label(
+            "Пока доступен установщик ресурсов и тест JNI-моста. Полноценный запуск игрового мира ещё не подключён.",
+            14f, Color.rgb(205, 214, 228), false
+        ))
+        page.addView(space(16))
+        val engineStatus = try { nativeEngineStatus() } catch (error: UnsatisfiedLinkError) {
+            "Rust-библиотека пока не загружена."
+        }
+        page.addView(label(engineStatus, 13f, MUTED, false))
         setContentView(scroll)
         refreshStatus()
-        page.addView(space(12))
-        page.addView(label("RUST ENGINE", 12f, Color.rgb(103, 180, 255), true))
-        page.addView(space(8))
-        val nativeStatus = try { nativeEngineStatus() } catch (error: UnsatisfiedLinkError) {
-            "Нативная библиотека Rust не найдена: ${error.message}"
-        }
-        page.addView(label(nativeStatus, 13f, Color.rgb(205, 214, 228), false))
     }
 
-    @Deprecated("Uses the system folder picker for broad Android compatibility")
+    @Deprecated("Uses Android's system document picker")
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
-        if (requestCode != REQUEST_FOLDER || resultCode != RESULT_OK) return
+        if (resultCode != RESULT_OK) return
         val uri = data?.data ?: return
-        try {
-            contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
-            importButton.isEnabled = false
-            status.text = "Импортирую файлы… Не закрывай приложение."
-            Thread {
-                try {
-                    val source = DocumentFile.fromTreeUri(this, uri)
-                        ?: error("Не удалось открыть выбранную папку")
-                    val destination = File(filesDir, "minecraft")
-                    destination.deleteRecursively()
-                    destination.mkdirs()
-                    copyTree(source, destination)
-                    prefs.edit().putString("imported_folder", uri.toString()).apply()
-                    runOnUiThread {
-                        importButton.isEnabled = true
-                        status.text = "Файлы импортированы во внутреннее хранилище Horizon."
+        setBusy(true, "Подготавливаю установку…")
+        Thread {
+            try {
+                val staging = File(filesDir, "resources-installing")
+                staging.deleteRecursively()
+                staging.mkdirs()
+                when (requestCode) {
+                    REQUEST_FOLDER -> {
+                        contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                        val tree = DocumentFile.fromTreeUri(this, uri) ?: error("Не удалось открыть папку")
+                        copyTree(tree, staging)
                     }
-                } catch (error: Exception) {
-                    runOnUiThread {
-                        importButton.isEnabled = true
-                        status.text = "Ошибка импорта: ${error.message ?: "неизвестная ошибка"}"
+                    REQUEST_ZIP -> {
+                        contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                        contentResolver.openInputStream(uri)?.use { input ->
+                            ZipInputStream(input).use { zip ->
+                                while (true) {
+                                    val entry = zip.nextEntry ?: break
+                                    val relative = entry.name.replace('\\\\', '/')
+                                    val target = File(staging, relative).canonicalFile
+                                    require(target.toPath().startsWith(staging.canonicalFile.toPath())) {
+                                        "В архиве найден недопустимый путь"
+                                    }
+                                    if (entry.isDirectory) target.mkdirs() else {
+                                        target.parentFile?.mkdirs()
+                                        FileOutputStream(target).use { output -> zip.copyTo(output) }
+                                    }
+                                    zip.closeEntry()
+                                }
+                            }
+                        } ?: error("Не удалось прочитать ZIP")
                     }
+                    else -> error("Неизвестный тип установки")
                 }
-            }.start()
-        } catch (error: Exception) {
-            status.text = "Не удалось получить доступ к папке: ${error.message}"
-        }
+
+                val resourceRoot = locateResourceRoot(staging)
+                    ?: error("Не найден horizon-resources.json. Выбери именно подготовленную папку ресурсов Horizon или ZIP с ней.")
+                val installed = File(filesDir, "resources")
+                val backup = File(filesDir, "resources-backup")
+                backup.deleteRecursively()
+                if (installed.exists()) check(installed.renameTo(backup)) { "Не удалось сохранить предыдущую установку" }
+                val finalStage = if (resourceRoot == staging) staging else resourceRoot
+                check(finalStage.renameTo(installed)) { "Не удалось завершить установку ресурсов" }
+                backup.deleteRecursively()
+                staging.deleteRecursively()
+                prefs.edit().putBoolean("resources_installed", true).apply()
+                runOnUiThread { setBusy(false, "Ресурсы Horizon успешно установлены.") }
+            } catch (error: Exception) {
+                File(filesDir, "resources-installing").deleteRecursively()
+                runOnUiThread { setBusy(false, "Установка не выполнена: ${error.message ?: "ошибка чтения файлов"}") }
+            }
+        }.start()
+    }
+
+    private fun locateResourceRoot(staging: File): File? {
+        if (File(staging, "horizon-resources.json").isFile) return staging
+        val children = staging.listFiles() ?: return null
+        return children.firstOrNull { it.isDirectory && File(it, "horizon-resources.json").isFile }
     }
 
     private fun copyTree(source: DocumentFile, destination: File) {
-        if (!source.isDirectory) return
+        require(source.isDirectory) { "Нужно выбрать папку" }
         source.listFiles().forEach { child ->
-            val target = File(destination, child.name ?: return@forEach)
+            val name = child.name ?: return@forEach
+            val target = File(destination, name)
             if (child.isDirectory) {
                 target.mkdirs()
                 copyTree(child, target)
@@ -135,13 +180,18 @@ class MainActivity : Activity() {
         }
     }
 
-    private fun refreshStatus() {
-        val folder = File(filesDir, "minecraft")
-        status.text = if (folder.exists() && folder.listFiles()?.isNotEmpty() == true) {
-            "Импортированная папка найдена во внутреннем хранилище."
-        } else {
-            "Папка Minecraft ещё не импортирована."
+    private fun setBusy(busy: Boolean, message: String) {
+        runOnUiThread {
+            status.text = message
+            folderButton.isEnabled = !busy
+            archiveButton.isEnabled = !busy
         }
+    }
+
+    private fun refreshStatus() {
+        val manifest = File(filesDir, "resources/horizon-resources.json")
+        status.text = if (manifest.isFile) "Ресурсы установлены во внутреннюю память приложения." else
+            "Ресурсы ещё не установлены. Выбери подготовленную папку или ZIP."
     }
 
     private fun label(text: String, size: Float, color: Int, bold: Boolean) =
@@ -156,10 +206,12 @@ class MainActivity : Activity() {
     private fun space(height: Int) = android.view.View(this).apply {
         layoutParams = LinearLayout.LayoutParams(1, dp(height))
     }
-
     private fun dp(value: Int) = (value * resources.displayMetrics.density).toInt()
 
     companion object {
         private const val REQUEST_FOLDER = 41
+        private const val REQUEST_ZIP = 42
+        private const val BLUE = 0xFF67B4FF.toInt()
+        private const val MUTED = 0xFFA5B2C6.toInt()
     }
 }
