@@ -46,10 +46,38 @@ jobs:
         with:
           targets: aarch64-linux-android
 
-      - name: Set up Android NDK
+      - name: Set up Android SDK tools
         uses: android-actions/setup-android@v3
-        with:
-          packages: ndk;27.2.12479018
+
+      - name: Install Android NDK with retry
+        shell: bash
+        run: |
+          set -euo pipefail
+          NDK_VERSION="27.2.12479018"
+          NDK_DIR="${ANDROID_HOME}/ndk/${NDK_VERSION}"
+          SDKMANAGER="${ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager"
+          if [ ! -x "$SDKMANAGER" ]; then
+            SDKMANAGER="$(find "${ANDROID_HOME}/cmdline-tools" -path '*/bin/sdkmanager' -type f | sort | tail -n 1)"
+          fi
+          test -x "$SDKMANAGER"
+          for attempt in 1 2 3; do
+            if [ -x "$NDK_DIR/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android24-clang" ]; then
+              echo "NDK $NDK_VERSION is already installed and verified"
+              exit 0
+            fi
+            echo "Installing NDK $NDK_VERSION (attempt $attempt/3)"
+            rm -rf "$NDK_DIR"
+            if yes | "$SDKMANAGER" --install "ndk;$NDK_VERSION" --sdk_root="${ANDROID_HOME}"; then
+              if [ -x "$NDK_DIR/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android24-clang" ]; then
+                echo "NDK installation verified"
+                exit 0
+              fi
+            fi
+            echo "NDK install attempt $attempt failed; retrying"
+            sleep 5
+          done
+          echo "NDK installation failed after 3 attempts"
+          exit 1
 
       - name: Build Rust JNI library for Android ARM64
         shell: bash
