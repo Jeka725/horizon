@@ -57,10 +57,10 @@ jobs:
           set -euo pipefail
           NDK_ROOT="${ANDROID_NDK_HOME:-${ANDROID_HOME}/ndk/27.2.12479018}"
           TOOLCHAIN="$NDK_ROOT/toolchains/llvm/prebuilt/linux-x86_64/bin"
-          echo "CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER=$TOOLCHAIN/aarch64-linux-android24-clang" >> "$GITHUB_ENV"
+          export CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER="$TOOLCHAIN/aarch64-linux-android24-clang"
           cargo build --manifest-path android-native/Cargo.toml --release --target aarch64-linux-android
           mkdir -p android-app/src/main/jniLibs/arm64-v8a
-          cp target/aarch64-linux-android/release/libhorizon_android.so android-app/src/main/jniLibs/arm64-v8a/
+          cp android-native/target/aarch64-linux-android/release/libhorizon_android.so android-app/src/main/jniLibs/arm64-v8a/
 
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
