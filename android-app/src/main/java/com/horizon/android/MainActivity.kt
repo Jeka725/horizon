@@ -426,7 +426,11 @@ class MainActivity : Activity() {
     private fun refreshProgress() = renderProjectProgress()
 
     private fun updateProjectProgress(stageIndex: Int, fraction: Float, detail: String) {
-        renderProjectProgress(stageIndex, fraction.coerceIn(0f, 1f), detail)
+        // Progress callbacks originate from the import worker. Android views
+        // must only be read or modified on the main thread.
+        runOnUiThread {
+            renderProjectProgress(stageIndex, fraction.coerceIn(0f, 1f), detail)
+        }
     }
 
     private fun renderProjectProgress(activeStage: Int = -1, activeFraction: Float = 0f, detail: String? = null) {
