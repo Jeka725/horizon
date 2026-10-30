@@ -80,7 +80,7 @@ class MainActivity : Activity() {
         page.addView(archiveButton, LinearLayout.LayoutParams(-1, dp(54)))
         page.addView(space(16))
         page.addView(label(
-            "Важно: APK не содержит Minecraft. Нужен архив или папка ресурсов, подготовленных из твоей собственной легальной копии Minecraft Java 26.3. Обычная папка .minecraft сама по себе ещё не является готовым пакетом Horizon. Приложение проверит пакет перед установкой.",
+            "Можно выбрать обычный ZIP или папку .minecraft из Minecraft Java 26.3. Horizon проверит assets, libraries и versions и сохранит исходные файлы. Подготовка игровых ресурсов и запуск движка Android пока подключаются отдельно.",
             14f, MUTED, false
         ))
         page.addView(space(24))
@@ -140,7 +140,26 @@ class MainActivity : Activity() {
                 }
 
                 val resourceRoot = locateResourceRoot(staging)
-                    ?: error("Не найден horizon-resources.json. Выбери именно подготовленную папку ресурсов Horizon или ZIP с ней.")
+                if (resourceRoot == null) {
+                    val minecraftRoot = locateMinecraftRoot(staging)
+                        ?: error("Не найдена папка .minecraft: нужны непустые assets, libraries и versions с файлами версии.")
+                    val sourceTarget = File(filesDir, "minecraft-source")
+                    val sourceBackup = File(filesDir, "minecraft-source-backup")
+                    sourceBackup.deleteRecursively()
+                    if (sourceTarget.exists()) check(sourceTarget.renameTo(sourceBackup)) {
+                        "Не удалось сохранить предыдущие файлы Minecraft"
+                    }
+                    check(minecraftRoot.renameTo(sourceTarget)) {
+                        "Не удалось сохранить исходную папку Minecraft"
+                    }
+                    sourceBackup.deleteRecursively()
+                    staging.deleteRecursively()
+                    prefs.edit().putBoolean("minecraft_source_imported", true).apply()
+                    runOnUiThread {
+                        setBusy(false, "Файлы Minecraft 26.3 импортированы. Подготовка ресурсов Horizon и запуск игры ещё не подключены.")
+                    }
+                    return@Thread
+                }
                 val installed = File(filesDir, "resources")
                 val backup = File(filesDir, "resources-backup")
                 backup.deleteRecursively()
@@ -162,6 +181,28 @@ class MainActivity : Activity() {
         if (File(staging, "horizon-resources.json").isFile) return staging
         val children = staging.listFiles() ?: return null
         return children.firstOrNull { it.isDirectory && File(it, "horizon-resources.json").isFile }
+    }
+
+    private fun locateMinecraftRoot(staging: File): File? {
+        fun valid(dir: File): Boolean {
+            val assets = File(dir, "assets")
+            val libraries = File(dir, "libraries")
+            val versions = File(dir, "versions")
+            if (!assets.isDirectory || !libraries.isDirectory || !versions.isDirectory) return false
+            if ((assets.listFiles()?.isNotEmpty() != true) ||
+                (libraries.listFiles()?.isNotEmpty() != true) ||
+                (versions.listFiles()?.isNotEmpty() != true)) return false
+            return versions.walkTopDown().any {
+                it.isFile && it.extension.equals("jar", ignoreCase = true)
+            } && versions.walkTopDown().any {
+                it.isFile && it.extension.equals("json", ignoreCase = true)
+            }
+        }
+        if (valid(staging)) return staging
+        return staging.walkTopDown()
+            .maxDepth(2)
+            .filter { it.isDirectory && it != staging }
+            .firstOrNull(::valid)
     }
 
     private fun copyTree(source: DocumentFile, destination: File) {
@@ -190,8 +231,12 @@ class MainActivity : Activity() {
 
     private fun refreshStatus() {
         val manifest = File(filesDir, "resources/horizon-resources.json")
-        status.text = if (manifest.isFile) "Ресурсы установлены во внутреннюю память приложения." else
-            "Ресурсы ещё не установлены. Выбери подготовленную папку или ZIP."
+        val source = File(filesDir, "minecraft-source/versions")
+        status.text = when {
+            manifest.isFile -> "Подготовленные ресурсы Horizon установлены."
+            source.isDirectory -> "Исходные файлы Minecraft импортированы. Подготовка Horizon ещё не выполнена."
+            else -> "Ресурсы ещё не установлены. Можно выбрать ZIP или обычную папку .minecraft."
+        }
     }
 
     private fun label(text: String, size: Float, color: Int, bold: Boolean) =
