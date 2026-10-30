@@ -7,6 +7,7 @@ import android.net.Uri
 import android.os.Bundle
 import android.view.Gravity
 import android.widget.Button
+import android.widget.ProgressBar
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
@@ -20,6 +21,9 @@ class MainActivity : Activity() {
     private lateinit var status: TextView
     private lateinit var folderButton: Button
     private lateinit var archiveButton: Button
+    private lateinit var progressPanel: LinearLayout
+    private lateinit var progressSummary: TextView
+    private lateinit var progressBar: ProgressBar
     private val prefs by lazy { getSharedPreferences("horizon", MODE_PRIVATE) }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -90,6 +94,25 @@ class MainActivity : Activity() {
             "Пока доступен установщик ресурсов и тест JNI-моста. Полноценный запуск игрового мира ещё не подключён.",
             14f, Color.rgb(205, 214, 228), false
         ))
+        page.addView(space(22))
+        page.addView(label("ПРОГРЕСС ПРОЕКТА", 12f, BLUE, true))
+        page.addView(space(8))
+        progressSummary = label("Проверяю этапы…", 14f, Color.WHITE, true)
+        page.addView(progressSummary)
+        progressBar = ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal).apply {
+            max = 100
+            progress = 0
+        }
+        page.addView(progressBar, LinearLayout.LayoutParams(-1, dp(8)).apply {
+            topMargin = dp(10)
+            bottomMargin = dp(12)
+        })
+        progressPanel = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(14), dp(12), dp(14), dp(12))
+            setBackgroundColor(Color.rgb(22, 30, 43))
+        }
+        page.addView(progressPanel)
         page.addView(space(16))
         val engineStatus = try { nativeEngineStatus() } catch (error: UnsatisfiedLinkError) {
             "Rust-библиотека пока не загружена."
@@ -97,6 +120,7 @@ class MainActivity : Activity() {
         page.addView(label(engineStatus, 13f, MUTED, false))
         setContentView(scroll)
         refreshStatus()
+        refreshProgress()
     }
 
     @Deprecated("Uses Android's system document picker")
@@ -157,6 +181,7 @@ class MainActivity : Activity() {
                     prefs.edit().putBoolean("minecraft_source_imported", true).apply()
                     runOnUiThread {
                         setBusy(false, "Файлы Minecraft 26.3 импортированы. Подготовка ресурсов Horizon и запуск игры ещё не подключены.")
+                    refreshProgress()
                     }
                     return@Thread
                 }
@@ -169,7 +194,10 @@ class MainActivity : Activity() {
                 backup.deleteRecursively()
                 staging.deleteRecursively()
                 prefs.edit().putBoolean("resources_installed", true).apply()
-                runOnUiThread { setBusy(false, "Ресурсы Horizon успешно установлены.") }
+                runOnUiThread {
+                    setBusy(false, "Ресурсы Horizon успешно установлены.")
+                    refreshProgress()
+                }
             } catch (error: Exception) {
                 File(filesDir, "resources-installing").deleteRecursively()
                 runOnUiThread { setBusy(false, "Установка не выполнена: ${error.message ?: "ошибка чтения файлов"}") }
@@ -237,6 +265,43 @@ class MainActivity : Activity() {
             source.isDirectory -> "Исходные файлы Minecraft импортированы. Подготовка Horizon ещё не выполнена."
             else -> "Ресурсы ещё не установлены. Можно выбрать ZIP или обычную папку .minecraft."
         }
+    }
+
+    private fun refreshProgress() {
+        val sourceImported = File(filesDir, "minecraft-source/versions").isDirectory
+        val resourcesInstalled = File(filesDir, "resources/horizon-resources.json").isFile
+        val stages = listOf(
+            Triple("Импорт Minecraft .minecraft", sourceImported || resourcesInstalled, "ZIP распознан и сохранён"),
+            Triple("Подготовка ресурсов Horizon", resourcesInstalled, "Генерация и проверка пакета"),
+            Triple("Подключение Java Runtime", false, "Запуск Java на Android"),
+            Triple("Подключение игрового клиента", false, "Связать игровой клиент с Android-приложением"),
+            Triple("Графика и управление", false, "Вывод изображения, касания и клавиатура"),
+            Triple("Проверка запуска мира", false, "Запуск и проверка настоящего игрового мира")
+        )
+        val done = stages.count { it.second }
+        val percent = done * 100 / stages.size
+        progressSummary.text = "$done из ${stages.size} этапов завершено · $percent%"
+        progressBar.progress = percent
+        progressPanel.removeAllViews()
+        stages.forEach { stage ->
+            val line = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                setPadding(0, dp(7), 0, dp(7))
+            }
+            val title = if (stage.second) "✓  ${stage.first}" else "○  ${stage.first}"
+            line.addView(label(title, 14f, if (stage.second) 0xFF7ED6A5.toInt() else Color.WHITE, true))
+            line.addView(space(3))
+            line.addView(label(
+                if (stage.second) "Готово" else "Ожидает выполнения · ${stage.third}",
+                12f, MUTED, false
+            ))
+            progressPanel.addView(line)
+        }
+        progressPanel.addView(space(4))
+        progressPanel.addView(label(
+            "Процент считается по шести проверяемым этапам, а не по времени ожидания. Сборка native-файла сама по себе ещё не означает, что игровой клиент подключён.",
+            11f, MUTED, false
+        ))
     }
 
     private fun label(text: String, size: Float, color: Int, bold: Boolean) =
