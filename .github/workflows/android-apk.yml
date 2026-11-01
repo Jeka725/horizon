@@ -118,6 +118,8 @@ jobs:
           api-level: 35
           arch: x86_64
           target: google_apis
+          emulator-options: -no-window -no-audio -no-boot-anim -gpu swiftshader_indirect -no-snapshot -wipe-data
+          emulator-boot-timeout: 600
           disable-animations: true
           script: |
             set -eu
