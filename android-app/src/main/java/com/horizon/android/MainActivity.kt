@@ -145,6 +145,7 @@ class MainActivity : Activity() {
         } else {
             "Rust-библиотека не загружена. Проверьте APK и ABI устройства."
         }
+        android.util.Log.i("HorizonNative", engineStatus)
         page.addView(label(engineStatus, 13f, MUTED, false))
         setContentView(scroll)
         refreshStatus()

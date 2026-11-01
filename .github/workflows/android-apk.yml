@@ -44,7 +44,7 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
         with:
-          targets: aarch64-linux-android
+          targets: aarch64-linux-android, x86_64-linux-android
 
       - name: Set up Android SDK tools
         uses: android-actions/setup-android@v3
@@ -91,6 +91,10 @@ jobs:
           cargo build --manifest-path android-native/Cargo.toml --release --target aarch64-linux-android
           mkdir -p android-app/src/main/jniLibs/arm64-v8a
           cp android-native/target/aarch64-linux-android/release/libhorizon_android.so android-app/src/main/jniLibs/arm64-v8a/
+          export CARGO_TARGET_X86_64_LINUX_ANDROID_LINKER="$TOOLCHAIN/x86_64-linux-android24-clang"
+          cargo build --manifest-path android-native/Cargo.toml --release --target x86_64-linux-android
+          mkdir -p android-app/src/main/jniLibs/x86_64
+          cp android-native/target/x86_64-linux-android/release/libhorizon_android.so android-app/src/main/jniLibs/x86_64/
 
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
@@ -106,6 +110,7 @@ jobs:
           test -s "$APK"
           unzip -t "$APK"
           unzip -l "$APK" | grep -E 'lib/arm64-v8a/libhorizon_android.so'
+          unzip -l "$APK" | grep -E 'lib/x86_64/libhorizon_android.so'
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
@@ -114,3 +119,14 @@ jobs:
           path: android-app/build/outputs/apk/debug/android-app-debug.apk
           if-no-files-found: error
           retention-days: 7
+
+      - name: Install and smoke-test APK on Android emulator
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 30
+          arch: x86_64
+          target: google_apis
+          emulator-options: -no-window -no-audio -no-boot-anim -gpu swiftshader_indirect -no-snapshot -wipe-data
+          emulator-boot-timeout: 360
+          disable-animations: true
+          script: adb install android-app/build/outputs/apk/debug/android-app-debug.apk && adb logcat -c && adb shell am start -n com.horizon.android/.MainActivity && for attempt in $(seq 1 30); do adb logcat -d -s HorizonNative:I | grep -F "Rust engine bridge loaded" && exit 0; sleep 1; done; adb logcat -d -s HorizonNative:I; echo "Android Activity did not report a successful Rust JNI call"; exit 1
