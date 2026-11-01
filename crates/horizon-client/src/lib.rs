@@ -1,6 +1,10 @@
 //! Horizon native client: resources, world streaming, rendering and the
 //! bindings between the validated simulation pieces and the game loop.
+
 #![forbid(unsafe_code)]
+
+// Keep the crate's external name available when shared modules are compiled here.
+extern crate self as horizon_client;
 pub mod advancements;
 pub mod ambience;
 pub mod animate_tick;
@@ -53,6 +57,7 @@ pub mod first_person;
 pub mod flatgen;
 pub mod friends_screen;
 pub mod furnace;
+pub mod game;
 pub mod game_mode_switcher;
 pub mod game_rules_screen;
 pub mod gizmos;
