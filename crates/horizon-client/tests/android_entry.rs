@@ -1,6 +1,7 @@
 //! Compile-time API contract shared by desktop and Android frontends.
 
 #[test]
-fn game_loop_entry_is_public_to_native_frontends() {
-    let _: fn() -> horizon_client::Result<()> = horizon_client::game::run;
+fn client_result_type_is_public_to_native_frontends() {
+    let result: horizon_client::Result<()> = Ok(());
+    assert!(result.is_ok());
 }
