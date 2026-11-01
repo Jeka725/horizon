@@ -136,8 +136,14 @@ class MainActivity : Activity() {
         }
         page.addView(progressPanel)
         page.addView(space(16))
-        val engineStatus = try { nativeEngineStatus() } catch (error: UnsatisfiedLinkError) {
-            "Rust-библиотека пока не загружена."
+        val engineStatus = if (nativeBridgeLoaded) {
+            try {
+                nativeEngineStatus()
+            } catch (error: UnsatisfiedLinkError) {
+                "Rust-библиотека упакована, но JNI-вызов недоступен: ${error.message}"
+            }
+        } else {
+            "Rust-библиотека не загружена. Проверьте APK и ABI устройства."
         }
         page.addView(label(engineStatus, 13f, MUTED, false))
         setContentView(scroll)
@@ -486,6 +492,15 @@ class MainActivity : Activity() {
     private fun dp(value: Int) = (value * resources.displayMetrics.density).toInt()
 
     companion object {
+        // Load the packaged ARM64 JNI bridge before invoking its native methods.
+        // Keep the shell usable on devices/variants where the native library is absent.
+        private val nativeBridgeLoaded: Boolean = try {
+            System.loadLibrary("horizon_android")
+            true
+        } catch (_: UnsatisfiedLinkError) {
+            false
+        }
+
         private const val REQUEST_FOLDER = 41
         private const val REQUEST_ZIP = 42
         private const val BLUE = 0xFF67B4FF.toInt()
