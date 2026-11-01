@@ -115,11 +115,11 @@ jobs:
       - name: Install and smoke-test APK on Android emulator
         uses: reactivecircus/android-emulator-runner@v2
         with:
-          api-level: 35
+          api-level: 30
           arch: x86_64
           target: google_apis
           emulator-options: -no-window -no-audio -no-boot-anim -gpu swiftshader_indirect -no-snapshot -wipe-data
-          emulator-boot-timeout: 600
+          emulator-boot-timeout: 300
           disable-animations: true
           script: |
             set -eu
